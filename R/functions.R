@@ -220,78 +220,62 @@ dw <- function(y, yhat){
 #' \item{\code{DateVariable}}{The name of the date variable}
 
 
-best_matches <- function(data=NULL, markets_to_be_matched=NULL, id_variable=NULL, date_variable=NULL, matching_variable=NULL, parallel=TRUE, warping_limit=1, start_match_period=NULL, end_match_period=NULL, matches=5, dtw_emphasis=1){
-
-  ## Nulling to avoid angry notes
-  match_var <- NULL
-  id_var <- NULL
-  date_var <- NULL
-  
-  ## Check the start date and end dates
-  stopif(is.null(start_match_period), TRUE, "No start date provided")
-  stopif(is.null(end_match_period), TRUE, "No end date provided")
-
-  # Clean up the emphasis
-  if (is.null(dtw_emphasis)){
-    dtw_emphasis<-1
-  } else if (dtw_emphasis>1){
-    dtw_emphasis<-1
-  } else if(dtw_emphasis<0){
-    dtw_emphasis<-0
-  }
-
-  ## check the inputs
-  check_inputs(data=data, id=id_variable, matching_variable=matching_variable, date_variable=date_variable)
-  data$date_var <- data[[date_variable]]
-  data$id_var <- data[[id_variable]]
-  data$match_var <- data[[matching_variable]]
-
-  data <- dplyr::arrange(data, id_var, date_var) %>% ungroup() %>% select(id_var, date_var, match_var)
-  ## save a reduced version of the data
-  saved_data <- data
-
-  ## get a vector of all markets
-  all_markets <- unique(data$id_var)
-  
-  ## set up a list to hold all distance matrices
-  all_distances <- list()
-
-  ## filter the dates
-  data <- dplyr::filter(data, date_var>=as.Date(start_match_period) & date_var<=as.Date(end_match_period))
-
-  ## check if any data is left
-  stopif(nrow(data)>0, FALSE, "ERROR: no data left after filter for dates")
-
-  if(!is.null(markets_to_be_matched)){
-    markets_to_be_matched <- unique(markets_to_be_matched)
-    for (k in 1:length(markets_to_be_matched)){
-       stopif(markets_to_be_matched[k] %in% unique(all_markets), FALSE, paste0("test market ", markets_to_be_matched[k], " does not exist"))
-       i <- which(all_markets == markets_to_be_matched[k])
-       all_distances[[k]] <- calculate_distances(all_markets, data, id_variable, i, warping_limit, matches, dtw_emphasis)
+best_matches_for_test_markets <- function (data = NULL, test_market = NULL, id_variable = NULL, date_variable = NULL, 
+    matching_variable = NULL, warping_limit = 1, parallel = TRUE, 
+    start_match_period = NULL, end_match_period = NULL, matches = 5, 
+    dtw_emphasis = 1) 
+{
+    stopif(is.null(start_match_period), TRUE, "No start date provided")
+    stopif(is.null(end_match_period), TRUE, "No end date provided")
+    if (is.null(dtw_emphasis)) {
+        dtw_emphasis <- 1
     }
-    shortest_distances <- data.frame(rbindlist(all_distances))
-  }else{
-    ## loop through markets and compute distances
-    if (parallel==FALSE){
-      for (i in 1:length(all_markets)){
-        all_distances[[i]] <- calculate_distances(all_markets, data, id_variable, i, warping_limit, matches, dtw_emphasis)
-      }
-      shortest_distances <- data.frame(rbindlist(all_distances))
-    } else{
-      ncore <- detectCores()-1
-      registerDoParallel(ncore)
-      loop_result <- foreach(i=1:length(all_markets)) %dopar% {
-        calculate_distances(all_markets, data, id_variable, i, warping_limit, matches, dtw_emphasis)
-      }
-      shortest_distances <- data.frame(rbindlist(loop_result))
-      stopImplicitCluster()
+    else if (dtw_emphasis > 1) {
+        dtw_emphasis <- 1
     }
-  }
-  
-  ### Return the results
-  object <- list(BestMatches=shortest_distances, Data=as.data.frame(saved_data), MarketID=id_variable, MatchingMetric=matching_variable, DateVariable=date_variable)
-  class(object) <- "matched_market"
-  return (object)
+    else if (dtw_emphasis < 0) {
+        dtw_emphasis <- 0
+    }
+    check_inputs(data = data, id = id_variable, matching_variable = matching_variable, 
+        date_variable = date_variable)
+    data$date_var <- data[[date_variable]]
+    data$id_var <- data[[id_variable]]
+    data$match_var <- data[[matching_variable]]
+    data <- dplyr::arrange(data, id_var, date_var) %>% ungroup() %>% 
+        dplyr::select(id_var, date_var, match_var)
+    saved_data <- data
+    # all_markets <- unique(data$id_var)
+    all_distances <- list()
+    data <- dplyr::filter(data, date_var >= as.Date(start_match_period) & 
+        date_var <= as.Date(end_match_period))
+    stopif(nrow(data) > 0, FALSE, "ERROR: no data left after filter for dates")
+    
+    # if we update the below to only pass the test markets to calculate distances we can remove the erroneous cycles of calculations for markets that aren't useful for us.
+    
+    if (parallel == FALSE) {
+        for (i in 1:length(test_market)) {
+            all_distances[[i]] <- calculate_distances(test_market,
+                data, id_variable, i, warping_limit, matches, 
+                dtw_emphasis)
+        }
+        shortest_distances <- data.frame(rbindlist(all_distances))
+    }
+    else {
+        ncore <- detectCores() - 1
+        registerDoParallel(ncore)
+        loop_result <- foreach(i = 1:length(test_market)) %dopar% 
+            {
+                calculate_distances(test_market, data, id_variable, 
+                  i, warping_limit, matches, dtw_emphasis)
+            }
+        shortest_distances <- data.frame(rbindlist(loop_result))
+        stopImplicitCluster()
+    }
+    object <- list(BestMatches = shortest_distances, Data = as.data.frame(saved_data), 
+        MarketID = id_variable, MatchingMetric = matching_variable, 
+        DateVariable = date_variable)
+    class(object) <- "matched_market"
+    return(object)
 }
 
 
